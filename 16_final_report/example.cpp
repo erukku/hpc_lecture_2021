@@ -18,6 +18,7 @@ int main(int argc, char** argv) {
   vector<float> subA(N*N/size);
   vector<float> subB(N*N/size);
   vector<float> subC(N*N/size, 0);
+#pragma omp parralel for private(j)
   for (int i=0; i<N; i++) {
     for (int j=0; j<N; j++) {
       A[N*i+j] = drand48();
@@ -25,9 +26,11 @@ int main(int argc, char** argv) {
     }
   }
   int offset = N/size*rank;
+#pragma omp parralel for private(j)
   for (int i=0; i<N/size; i++)
     for (int j=0; j<N; j++)
       subA[N*i+j] = A[N*(i+offset)+j];
+#pragma omp parralel for private(j)
   for (int i=0; i<N; i++)
     for (int j=0; j<N/size; j++)
       subB[N/size*i+j] = B[N*i+j+offset];
@@ -35,6 +38,7 @@ int main(int argc, char** argv) {
   int send_to = (rank - 1 + size) % size;
 
   double comp_time = 0, comm_time = 0;
+#pragma omp parralel for private(i,j,k) reduction(+:err)
   for(int irank=0; irank<size; irank++) {
     auto tic = chrono::steady_clock::now();
     offset = N/size*((rank+irank) % size);
@@ -52,11 +56,13 @@ int main(int argc, char** argv) {
     comm_time += chrono::duration<double>(tic - toc).count();
   }
   MPI_Allgather(&subC[0], N*N/size, MPI_FLOAT, &C[0], N*N/size, MPI_FLOAT, MPI_COMM_WORLD);
+#pragma omp parralel for private(j,k)
   for (int i=0; i<N; i++)
     for (int j=0; j<N; j++)
       for (int k=0; k<N; k++)
         C[N*i+j] -= A[N*i+k] * B[N*k+j];
   double err = 0;
+#pragma omp parralel for private(j) reduction(+:err)
   for (int i=0; i<N; i++)
     for (int j=0; j<N; j++)
       err += fabs(C[N*i+j]);
