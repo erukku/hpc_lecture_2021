@@ -3,6 +3,7 @@
 #include <cmath>
 #include <vector>
 #include <chrono>
+#include <immintrin.h>
 using namespace std;
 
 int main(int argc, char** argv) {
@@ -19,7 +20,6 @@ int main(int argc, char** argv) {
   vector<float> subB(N*N/size);
   vector<float> subC(N*N/size, 0);
   vector<float> recv(N*N/size);
-#pragma omp parralel for private(j)
   for (int i=0; i<N; i++) {
     for (int j=0; j<N; j++) {
       A[N*i+j] = drand48();
@@ -27,11 +27,9 @@ int main(int argc, char** argv) {
     }
   }
   int offset = N/size*rank;
-#pragma omp parralel for private(j)
   for (int i=0; i<N/size; i++)
     for (int j=0; j<N; j++)
       subA[N*i+j] = A[N*(i+offset)+j];
-#pragma omp parralel for private(j)
   for (int i=0; i<N; i++)
     for (int j=0; j<N/size; j++)
       subB[N/size*i+j] = B[N*i+j+offset];
@@ -39,35 +37,58 @@ int main(int argc, char** argv) {
   int send_to = (rank - 1 + size) % size;
 
   double comp_time = 0, comm_time = 0;
-#pragma omp parralel for private(offset,recv) simd reduction(+:subC,comp_time,comm_time)
   for(int irank=0; irank<size; irank++) {
     auto tic = chrono::steady_clock::now();
     offset = N/size*((rank+irank) % size);
-#pragma omp parralel for private(j,k) 
-    for (int i=0; i<N/size; i++)
-      for (int j=0; j<N/size; j++)
-        for (int k=0; k<N; k++)
-          subC[N*i+j+offset] += subA[N*i+k] * subB[N/size*k+j];
+    
+#pragma omp parralel for 
+    for (int i=0; i<N/size; i++){
+      float X[8],Y[8];
+      float Z[8];
+      //for(int shiki=0;shiki<8;shiki++){
+      //	X[shiki] = 0;
+      //  Y[shiki] = 0;
+      //  Z[shiki] = 0;
+      //}
+      float mid;
+#pragma omp parralel for private(k,l)
+      for (int j=0; j<N/size; j++){
+        mid = 0;
+        for (int k=0; k<N; k+=8){
+          for (int l = 0; l < 8;l++){
+             X[l] = subA[i*N+k+l];
+             Y[l] = subB[N/size*(k+l)+j];
+          }
+          __m256 Avec = _mm256_load_ps(X);
+          __m256 Bvec = _mm256_load_ps(Y);
+          __m256 Cvec = _mm256_mul_ps(Avec, Bvec);
+          _mm256_store_ps(Z, Cvec);
+          int po = 8;
+#pragma omp parralel for reduction(+:mid)
+          for (int kk=0; kk < po ;kk++){
+            mid += Z[kk];
+          }
+        }
+        subC[N*i+j+offset] += mid;
+      } 
+    }
     auto toc = chrono::steady_clock::now();
     comp_time += chrono::duration<double>(toc - tic).count();
     MPI_Request request[2];
     MPI_Isend(&subB[0], N*N/size, MPI_FLOAT, send_to, 0, MPI_COMM_WORLD, &request[0]);
     MPI_Irecv(&recv[0], N*N/size, MPI_FLOAT, recv_from, 0, MPI_COMM_WORLD, &request[1]);
     MPI_Waitall(2, request, MPI_STATUS_IGNORE);
-#pragma omp parralel for
     for (int i=0; i<N*N/size; i++)
       subB[i] = recv[i];
     tic = chrono::steady_clock::now();
     comm_time += chrono::duration<double>(tic - toc).count();
   }
   MPI_Allgather(&subC[0], N*N/size, MPI_FLOAT, &C[0], N*N/size, MPI_FLOAT, MPI_COMM_WORLD);
-#pragma omp parralel for private(j,k)
   for (int i=0; i<N; i++)
     for (int j=0; j<N; j++)
       for (int k=0; k<N; k++)
         C[N*i+j] -= A[N*i+k] * B[N*k+j];
   double err = 0;
-#pragma omp parralel for private(j) simd reduction(+:err)
   for (int i=0; i<N; i++)
     for (int j=0; j<N; j++)
       err += fabs(C[N*i+j]);
