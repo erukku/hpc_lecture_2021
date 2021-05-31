@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  const int N = 256*8;
+  const int N = 256*4;
   vector<float> A(N*N);
   vector<float> B(N*N);
   vector<float> C(N*N, 0);
@@ -44,9 +44,6 @@ int main(int argc, char** argv) {
     
 #pragma omp parallel for
     for (int i=0; i<N/size; i++){
-      //int a = omp_get_num_threads();
-      //printf("%d\n",a);
-      
       float X[8],Y[8];
       float Z[8];
       float mid;
@@ -62,9 +59,7 @@ int main(int argc, char** argv) {
           __m256 Bvec = _mm256_load_ps(Y);
           __m256 Cvec = _mm256_mul_ps(Avec, Bvec);
           _mm256_store_ps(Z, Cvec);
-#pragma omp parralel for reduction(+:mid)
           for (int kk=0; kk < 8 ;kk++){
-            //subC[N*i+j+offset] += Z[kk];
             mid += Z[kk];
           }
         }
