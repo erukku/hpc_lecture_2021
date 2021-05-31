@@ -4,6 +4,7 @@
 #include <vector>
 #include <chrono>
 #include <immintrin.h>
+#include <omp.h>
 using namespace std;
 
 int main(int argc, char** argv) {
@@ -11,8 +12,7 @@ int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-  const int N = 256;
+  const int N = 256*8;
   vector<float> A(N*N);
   vector<float> B(N*N);
   vector<float> C(N*N, 0);
@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
     for (int j=0; j<N; j++) {
       A[N*i+j] = drand48();
       B[N*i+j] = drand48();
+
     }
   }
   int offset = N/size*rank;
@@ -41,17 +42,15 @@ int main(int argc, char** argv) {
     auto tic = chrono::steady_clock::now();
     offset = N/size*((rank+irank) % size);
     
-#pragma omp parralel for 
+#pragma omp parallel for
     for (int i=0; i<N/size; i++){
+      //int a = omp_get_num_threads();
+      //printf("%d\n",a);
+      
       float X[8],Y[8];
       float Z[8];
-      //for(int shiki=0;shiki<8;shiki++){
-      //	X[shiki] = 0;
-      //  Y[shiki] = 0;
-      //  Z[shiki] = 0;
-      //}
       float mid;
-#pragma omp parralel for private(k,l)
+#pragma omp parallel for private(X,Y,Z,mid)
       for (int j=0; j<N/size; j++){
         mid = 0;
         for (int k=0; k<N; k+=8){
@@ -63,9 +62,9 @@ int main(int argc, char** argv) {
           __m256 Bvec = _mm256_load_ps(Y);
           __m256 Cvec = _mm256_mul_ps(Avec, Bvec);
           _mm256_store_ps(Z, Cvec);
-          int po = 8;
 #pragma omp parralel for reduction(+:mid)
-          for (int kk=0; kk < po ;kk++){
+          for (int kk=0; kk < 8 ;kk++){
+            //subC[N*i+j+offset] += Z[kk];
             mid += Z[kk];
           }
         }

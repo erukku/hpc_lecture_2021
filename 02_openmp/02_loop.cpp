@@ -3,7 +3,7 @@
 
 int main() {
 #pragma omp parallel for
-  for(int i=0; i<8; i++) {
+  for(int i=0; i<20; i++) {
     printf("%d: %d\n",omp_get_thread_num(),i);
   }
 }
